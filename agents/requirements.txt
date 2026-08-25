@@ -1,0 +1,17 @@
+# Python agent dependencies for Sentinel Ring
+# These are like Maven dependencies in pom.xml — install with: pip install -r requirements.txt
+# NOTE: Versions unpinned to support Python 3.14+ — pip will resolve the latest compatible.
+
+# --- Web framework ---
+fastapi                   # Like Spring Boot but for Python — handles routing, validation, JSON serialization
+uvicorn[standard]         # The HTTP server that runs FastAPI (like embedded Tomcat in Spring Boot)
+
+# --- Data / ML (will be used more in later stages) ---
+pydantic                  # Data validation library — FastAPI uses it for request/response models
+numpy                     # Numerical computing — foundation for all ML libraries
+scikit-learn              # ML toolkit — we'll use this for the trained model upgrade
+networkx                  # Graph library — used in Stage 3-4 (Graph-Builder + Ring-Detection)
+
+# --- Testing ---
+pytest                    # Test framework (like JUnit 5 for Python)
+httpx                     # HTTP client needed by FastAPI's TestClient
