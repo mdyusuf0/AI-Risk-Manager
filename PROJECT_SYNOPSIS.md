@@ -17,7 +17,7 @@
 | 2 | **Baseline Scoring Agent** | **Python** | ✅ **Complete** |
 | 3 | **Graph-Builder & Ring-Detection Agent** | **Python** | ✅ **Complete** |
 | 4 | **Evaluation Agent** | **Python** | ✅ **Complete** |
-| 5 | Explainability Agent | Python | ⏳ Pending |
+| 5 | **Explainability Agent** | **Python** | ✅ **Complete** |
 | 6 | Orchestrator (wiring) | Spring Boot | ⏳ Pending |
 
 ---
@@ -35,7 +35,7 @@ graph TB
     subgraph "Python FastAPI · localhost:8000"
         BS["📊 Baseline Scoring<br/>POST /score/baseline<br/><i>Stage 2 — COMPLETE</i>"]
         GR["🕸️ Graph + Ring Detection<br/>POST /graph/detect-rings<br/><i>Stage 3 — COMPLETE</i>"]
-        EX["💬 Explainability<br/>POST /explain<br/><i>PENDING</i>"]
+        EX["💬 Explainability<br/>POST /explain<br/><i>Stage 5 — COMPLETE</i>"]
         EV["📈 Evaluation<br/>POST /evaluate<br/><i>Stage 4 — COMPLETE</i>"]
     end
 
@@ -52,7 +52,7 @@ graph TB
     style ORCH fill:#9e9e9e,color:#fff
     style BS fill:#4caf50,color:#fff
     style GR fill:#4caf50,color:#fff
-    style EX fill:#9e9e9e,color:#fff
+    style EX fill:#4caf50,color:#fff
     style EV fill:#4caf50,color:#fff
 ```
 
@@ -267,17 +267,52 @@ configurable cost per false positive.
 
 ---
 
+## Stage 5: Explainability Agent — What Was Built
+
+### Purpose
+
+The Explainability Agent implements `POST /explain`.
+It takes a flagged ring's metadata (ring_id, account_ids, shared_attrs, optional
+time_window_days) and generates a plain-English evidence explanation for human
+reviewers. Only references time windows when timestamp data was actually available.
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Attribute labeling | Map internal names to human-readable (`device_id` → "device fingerprint") | Makes explanations readable for non-technical fraud reviewers. |
+| Time window handling | Only include when `time_window_days > 0` | Contract rule: never claim time-based evidence when timestamps were unavailable. |
+| Oxford comma | Used for 3+ attributes | Grammatically correct English output. |
+
+### Test Coverage (10 tests)
+
+| Test Category | Count | What's Tested |
+|---------------|-------|---------------|
+| Explanation logic | 6 | Single attr, multiple attrs, oxford comma, time window present/null/zero |
+| API integration | 4 | Valid 200 response, empty accounts 400, empty attrs 400, missing time_window |
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| [`agents/explain/models.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/explain/models.py) | Pydantic models for /explain |
+| [`agents/explain/explainer.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/explain/explainer.py) | Explanation text generator |
+| [`agents/explain/router.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/explain/router.py) | FastAPI router for POST /explain |
+| [`agents/tests/test_explain.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/tests/test_explain.py) | 10 unit & integration tests |
+
+---
+
 ## What's Next
 
-**Stage 5: Explainability Agent (Python / FastAPI)**
-- Implements `POST /explain`
-- Generates plain-English evidence explanations for flagged rings
-- Supports optional `time_window_days` parameter
+**Stage 6: Orchestrator Wiring (Spring Boot)**
+- Wire Spring Boot to call all 4 Python endpoints
+- Build the final verdict response per API contract
+- End-to-end pipeline: CSV → Ingestion → Scoring + Graph → Explain → Verdict
 
 ---
 
 ## Metrics
 
 > Precision, recall, and false-positive cost will be reported here once the
-> Evaluation Agent (Stage 5) is running against real train/test data. No
+> Evaluation Agent is running against real train/test data. No
 > placeholder or estimated numbers.
