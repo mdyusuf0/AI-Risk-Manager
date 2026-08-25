@@ -4,10 +4,9 @@
 > paths without updating this file first and getting team agreement. Every
 > agent on both the Java and Python side must be built against this exact spec.
 >
-> **Revision:** v3 (FINAL) — incorporates all review feedback: aggregation
-> rules, flagging thresholds, nullable fields, `/explain` time windows,
-> `/evaluate` alignment + offline-only semantics, multi-ring tie-breaking,
-> and cost configuration.
+> **Revision:** v4 (FINAL) — incorporates multi-value attribute sets (`device_ids`,
+> `ips`, `bank_refs`) per account in `/graph/detect-rings` so all observed
+> linkage attributes across transactions are preserved without loss.
 
 ---
 
@@ -158,9 +157,9 @@ Receives cleaned transactions and returns a per-transaction risk score (0–1).
 
 ### 2. `POST /graph/detect-rings`
 
-Receives account-level attribute data, builds an internal graph of shared
-attributes (ignoring `null` values), runs community detection, and returns
-discovered rings.
+Receives account-level attribute sets (all observed non-null attributes per
+account across transactions), builds an internal graph of shared attributes,
+runs community detection, and returns discovered rings.
 
 **Request Body**
 
@@ -169,24 +168,23 @@ discovered rings.
   "accounts": [
     {
       "account_id": "a1",
-      "device_id": "d1",
-      "ip": "1.2.3.4",
-      "bank_ref": "b1"
+      "device_ids": ["d1", "d2"],
+      "ips": ["1.2.3.4"],
+      "bank_refs": ["b1"]
     }
   ]
 }
 ```
 
-| Field | Type | Required | Nullable | Notes |
-|-------|------|----------|----------|-------|
-| `accounts` | array | yes | — | One or more account objects |
-| `accounts[].account_id` | string | yes | no | Unique account identifier |
-| `accounts[].device_id` | string | yes | **yes** | Device fingerprint; `null` if unknown |
-| `accounts[].ip` | string | yes | **yes** | IP address; `null` if unknown |
-| `accounts[].bank_ref` | string | yes | **yes** | Non-reversible hash of bank account; `null` if unknown |
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `accounts` | array | yes | One or more account objects |
+| `accounts[].account_id` | string | yes | Unique account identifier |
+| `accounts[].device_ids` | array of strings | yes | All non-null device fingerprints observed for this account (can be empty `[]`) |
+| `accounts[].ips` | array of strings | yes | All non-null IP addresses observed for this account (can be empty `[]`) |
+| `accounts[].bank_refs` | array of strings | yes | All non-null bank account hashes observed for this account (can be empty `[]`) |
 
-**Null handling:** Two accounts sharing `null` for any attribute do **not**
-get an edge. Only non-null, identical attribute values create edges.
+**Null / empty handling:** Empty arrays `[]` or `null` values represent unobserved attributes and do **not** create graph edges. Two accounts both having empty `device_ids` do **not** get connected. Only identical, non-empty attribute values create edges.
 
 **Response Body**
 
@@ -423,12 +421,13 @@ These accounts do **not** trigger a `/explain` call.
 > **This section exists because Java ↔ Python naming mismatches are the #1
 > integration bug in hybrid projects.**
 
-| Canonical Name | Used In | ⚠️ Never Use |
-|----------------|---------|--------------|
 | `account_id` | everywhere | `accountId`, `AccountId`, `acct_id` |
-| `device_id` | everywhere | `deviceId`, `DeviceId` |
-| `ip` | everywhere | `ipAddress`, `ip_address`, `IP` |
-| `bank_ref` | everywhere | `bankRef`, `bank_reference` |
+| `device_id` | `/score/baseline` (tx level) | `deviceId`, `DeviceId` |
+| `device_ids` | `/graph/detect-rings` (account level) | `deviceIds`, `devices` |
+| `ip` | `/score/baseline` (tx level) | `ipAddress`, `ip_address`, `IP` |
+| `ips` | `/graph/detect-rings` (account level) | `ipAddresses`, `ipList` |
+| `bank_ref` | data privacy | `bankRef`, `bank_reference` |
+| `bank_refs` | `/graph/detect-rings` (account level) | `bankRefs`, `bankList` |
 | `risk_score` | `/score/baseline` response, orchestrator verdict | `riskScore`, `score` |
 | `ring_id` | `/graph/detect-rings` response, `/explain` request, orchestrator verdict | `ringId`, `clusterId` |
 | `ring_score` | `/graph/detect-rings` response | `ringScore`, `confidence` |

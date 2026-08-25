@@ -192,45 +192,41 @@ public class IngestionService {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // Inner class: mutable builder for account-level deduplication
+    // Inner class: mutable builder for account-level attribute aggregation
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Collects attributes for a single account across multiple transactions.
+     * Collects all observed attributes for a single account across transactions.
      *
-     * WHY DEDUPLICATE: The Python /graph/detect-rings endpoint expects one
-     * record per account. But raw data has one row per transaction, and an
-     * account can have many transactions. We merge them here.
-     *
-     * MERGE RULE: Keep the FIRST non-null value for each attribute.
-     * Example: transaction 1 has deviceId=null, transaction 2 has deviceId="d1"
-     * → the account gets deviceId="d1" because that's the first non-null.
+     * WHY AGGREGATE SETS: An account can use multiple devices, IPs, or bank accounts
+     * across different transactions. To prevent missing graph links, we preserve
+     * ALL observed non-null attribute values for each account.
      */
     private static class AccountBuilder {
         private final String accountId;
-        private String deviceId;
-        private String ip;
-        private String bankRef;
+        private final Set<String> deviceIds = new LinkedHashSet<>();
+        private final Set<String> ips = new LinkedHashSet<>();
+        private final Set<String> bankRefs = new LinkedHashSet<>();
 
         AccountBuilder(String accountId) {
             this.accountId = accountId;
         }
 
-        /** Merge in new attribute values, keeping first non-null for each. */
+        /** Merge in new non-null attribute values observed on a transaction. */
         void mergeAttributes(String newDeviceId, String newIp, String newBankRef) {
-            if (this.deviceId == null && newDeviceId != null) {
-                this.deviceId = newDeviceId;
+            if (newDeviceId != null) {
+                this.deviceIds.add(newDeviceId);
             }
-            if (this.ip == null && newIp != null) {
-                this.ip = newIp;
+            if (newIp != null) {
+                this.ips.add(newIp);
             }
-            if (this.bankRef == null && newBankRef != null) {
-                this.bankRef = newBankRef;
+            if (newBankRef != null) {
+                this.bankRefs.add(newBankRef);
             }
         }
 
         CleanAccount build() {
-            return new CleanAccount(accountId, deviceId, ip, bankRef);
+            return new CleanAccount(accountId, deviceIds, ips, bankRefs);
         }
     }
 }

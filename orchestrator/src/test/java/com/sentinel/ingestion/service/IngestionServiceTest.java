@@ -90,7 +90,7 @@ class IngestionServiceTest {
             IngestionResult result = service.ingest(List.of(raw));
 
             assertThat(result.getAccounts()).hasSize(1);
-            assertThat(result.getAccounts().get(0).getBankRef()).isNull();
+            assertThat(result.getAccounts().get(0).getBankRefs()).isEmpty();
         }
 
         @Test
@@ -108,7 +108,7 @@ class IngestionServiceTest {
             assertThat(tx.getAmount()).isEqualTo(500.0);
 
             CleanAccount acct = result.getAccounts().get(0);
-            assertThat(acct.getBankRef()).isNotNull().hasSize(64); // SHA-256 hex
+            assertThat(acct.getBankRefs()).containsExactly(BankRefHasher.hash("BANK999"));
         }
     }
 
@@ -131,8 +131,8 @@ class IngestionServiceTest {
 
             // Should match the same hash we'd get from BankRefHasher directly
             String expectedHash = BankRefHasher.hash("ACC123");
-            assertThat(result.getAccounts().get(0).getBankRef())
-                    .isEqualTo(expectedHash);
+            assertThat(result.getAccounts().get(0).getBankRefs())
+                    .containsExactly(expectedHash);
         }
 
         @Test
@@ -149,8 +149,8 @@ class IngestionServiceTest {
 
             // Two different accounts with the same raw bank number →
             // they should get the same bankRef hash (this creates a graph edge later)
-            assertThat(result.getAccounts().get(0).getBankRef())
-                    .isEqualTo(result.getAccounts().get(1).getBankRef());
+            assertThat(result.getAccounts().get(0).getBankRefs())
+                    .isEqualTo(result.getAccounts().get(1).getBankRefs());
         }
     }
 
@@ -356,24 +356,23 @@ class IngestionServiceTest {
         }
 
         @Test
-        @DisplayName("first non-null attribute wins when merging across transactions")
-        void firstNonNullAttributeKept() {
+        @DisplayName("all observed non-null attributes across transactions are preserved for each account")
+        void allObservedAttributesPreserved() {
             List<RawTransaction> rows = List.of(
-                    // First tx for a1: deviceId is null
+                    // First tx for a1: deviceId is null, ip is 1.2.3.4
                     new RawTransaction("t1", 100.0, null, "1.2.3.4", "a1", null, null),
-                    // Second tx for a1: deviceId is "d1" — this should be kept
+                    // Second tx for a1: deviceId is "d1", bank is BANK99
                     new RawTransaction("t2", 200.0, "d1", null, "a1", "BANK99", null),
-                    // Third tx for a1: deviceId is "d2" — ignored, d1 was first non-null
+                    // Third tx for a1: deviceId is "d2", ip is 9.9.9.9 — both should be kept in the sets!
                     new RawTransaction("t3", 300.0, "d2", "9.9.9.9", "a1", "BANK99", null)
             );
 
             IngestionResult result = service.ingest(rows);
 
             CleanAccount account = result.getAccounts().get(0);
-            assertThat(account.getDeviceId()).isEqualTo("d1");       // first non-null
-            assertThat(account.getIp()).isEqualTo("1.2.3.4");        // from tx1
-            assertThat(account.getBankRef())
-                    .isEqualTo(BankRefHasher.hash("BANK99"));        // from tx2
+            assertThat(account.getDeviceIds()).containsExactlyInAnyOrder("d1", "d2");
+            assertThat(account.getIps()).containsExactlyInAnyOrder("1.2.3.4", "9.9.9.9");
+            assertThat(account.getBankRefs()).containsExactly(BankRefHasher.hash("BANK99"));
         }
     }
 
