@@ -1,0 +1,43 @@
+# ── Build outputs ──────────────────────────────────────────
+# Java / Maven
+orchestrator/target/
+*.class
+*.jar
+*.war
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+agents/.pytest_cache/
+
+# ── IDE files ──────────────────────────────────────────────
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# ── OS files ───────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Environment / secrets ─────────────────────────────────
+.env
+*.env.local
+venv/
+.venv/
+
+# ── Data files (too large for git) ─────────────────────────
+data/*.csv
+data/*.zip
+data/*.parquet
+!data/.gitkeep
+
+# ── Gemini / Antigravity workspace ─────────────────────────
+.gemini/
