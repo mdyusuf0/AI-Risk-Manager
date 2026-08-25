@@ -12,11 +12,11 @@
 
 | Stage | Agent | Stack | Status |
 |-------|-------|-------|--------|
-| 0 | API Contract | — | ✅ Locked (v3) |
+| 0 | API Contract | — | ✅ Locked (v4) |
 | 1 | **Ingestion Agent** | **Spring Boot** | ✅ **Complete** |
 | 2 | **Baseline Scoring Agent** | **Python** | ✅ **Complete** |
-| 3 | Graph-Builder Agent | Python | ⏳ Pending |
-| 4 | Ring-Detection Agent | Python | ⏳ Pending |
+| 3 | **Graph-Builder & Ring-Detection Agent** | **Python** | ✅ **Complete** |
+| 4 | Evaluation Agent | Python | ⏳ Pending |
 | 5 | Evaluation Agent | Python | ⏳ Pending |
 | 6 | Explainability Agent | Python | ⏳ Pending |
 | 7 | Orchestrator (wiring) | Spring Boot | ⏳ Pending |
@@ -35,7 +35,7 @@ graph TB
 
     subgraph "Python FastAPI · localhost:8000"
         BS["📊 Baseline Scoring<br/>POST /score/baseline<br/><i>Stage 2 — COMPLETE</i>"]
-        GR["🕸️ Graph + Ring Detection<br/>POST /graph/detect-rings<br/><i>PENDING</i>"]
+        GR["🕸️ Graph + Ring Detection<br/>POST /graph/detect-rings<br/><i>Stage 3 — COMPLETE</i>"]
         EX["💬 Explainability<br/>POST /explain<br/><i>PENDING</i>"]
         EV["📈 Evaluation<br/>POST /evaluate<br/><i>PENDING</i>"]
     end
@@ -52,7 +52,7 @@ graph TB
     style IA fill:#4caf50,color:#fff
     style ORCH fill:#9e9e9e,color:#fff
     style BS fill:#4caf50,color:#fff
-    style GR fill:#9e9e9e,color:#fff
+    style GR fill:#4caf50,color:#fff
     style EX fill:#9e9e9e,color:#fff
     style EV fill:#9e9e9e,color:#fff
 ```
@@ -182,13 +182,60 @@ clamped to [0.0, 1.0]
 
 ---
 
+## Stage 3: Graph-Builder & Ring-Detection Agent — What Was Built
+
+### Purpose
+
+The Graph-Builder & Ring-Detection Agent implements `POST /graph/detect-rings`.
+It receives account attribute sets (`device_ids`, `ips`, `bank_refs`), constructs
+an undirected NetworkX graph connecting accounts that share non-null attributes,
+identifies connected components (clusters), and computes confidence scores for
+flagged rings.
+
+### Key Data-Model Correction (API Contract v4)
+
+| Original Approach | Problem | Revised Approach (v4) |
+|-------------------|---------|-----------------------|
+| Deduplicate account attributes by keeping first non-null value (`device_id`, `ip`, `bank_ref`). | Discarded subsequent legitimate devices/IPs/banks used by the same account, missing graph links. | Preserve **all** observed non-null attribute values as sets per account (`device_ids`, `ips`, `bank_refs`). |
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Graph Library | `networkx` (`nx.Graph`) | Standard Python library for graph construction and connected component detection. |
+| Edge Rules | Created only between accounts sharing non-null/non-empty attribute values. | Prevents false connections from unobserved attributes. |
+| Edge Data | `shared_attrs` set stored on each edge (`device_id`, `ip`, `bank_ref`). | Preserves attribute-level evidence trail for downstream explanations. |
+| Ring Ordering | Primary: descending `ring_score`. Secondary tie-breaker: `account_ids` joined string. | Guarantees deterministic output across identical input payloads. |
+| Ring ID Format | `ring-1`, `ring-2`, ... (1-based rank by descending score). | Consistent run-scoped ring IDs. |
+
+### Test Coverage (8 tests)
+
+| Test Category | Count | What's Tested |
+|---------------|-------|---------------|
+| Null/Empty handling | 1 | Accounts with empty attribute sets create no graph edges |
+| Disconnected accounts | 1 | Accounts with unique attributes produce 0 rings |
+| Single shared attribute | 1 | 3 accounts sharing device_id form 1 ring ("ring-1") |
+| Multi-attribute linkage | 1 | Accounts linked across device + bank_ref preserve all evidence |
+| Deterministic ordering | 1 | Rings sorted by score descending; tie-breaking rule verified |
+| API integration | 3 | HTTP 200 with correct JSON shape, 400 for empty accounts, 422 for bad payload |
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| [`agents/graph/models.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/graph/models.py) | Pydantic models for /graph/detect-rings (v4) |
+| [`agents/graph/detector.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/graph/detector.py) | NetworkX graph construction & ring detection algorithm |
+| [`agents/graph/router.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/graph/router.py) | FastAPI router for POST /graph/detect-rings |
+| [`agents/tests/test_graph.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/tests/test_graph.py) | 8 unit & integration tests for ring detection |
+
+---
+
 ## What's Next
 
-**Stage 3: Graph-Builder + Ring-Detection Agent (Python / FastAPI)**
-- Builds an account graph from shared device/IP/bank attributes (networkx)
-- Runs community detection (Louvain) to find suspicious clusters
-- Implements `POST /graph/detect-rings`
-- This is the core differentiator of the project
+**Stage 4: Evaluation Agent (Python / FastAPI)**
+- Implements `POST /evaluate`
+- Computes precision, recall, and false-positive cost on held-out test sets
+- Validates prediction vs ground truth ID alignment rules
 
 ---
 
