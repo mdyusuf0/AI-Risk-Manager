@@ -3,22 +3,7 @@ package com.sentinel.ingestion.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
 
-/**
- * A cleaned transaction ready to be sent to the Python baseline scoring
- * endpoint: POST /score/baseline.
- *
- * Every @JsonProperty annotation here maps to the exact field name in
- * API_CONTRACT.md. This is how we enforce snake_case on the wire even
- * though Java fields use camelCase internally.
- *
- * Think of it this way:
- *   Java side:   cleanTx.getDeviceId()          → camelCase (Java convention)
- *   JSON wire:   { "device_id": "d1" }           → snake_case (API contract)
- *   Python side: tx["device_id"]                 → snake_case (Python convention)
- *
- * The @JsonProperty bridge makes both sides happy without either side
- * breaking its own naming conventions.
- */
+// dto for /score/baseline
 public class CleanTransaction {
 
     @JsonProperty("id")
@@ -27,16 +12,9 @@ public class CleanTransaction {
     @JsonProperty("amount")
     private final double amount;
 
-    /**
-     * Nullable — if the raw data had no device fingerprint, this is null.
-     * Per API contract: null device_id is never treated as shared evidence.
-     */
     @JsonProperty("device_id")
     private final String deviceId;
 
-    /**
-     * Nullable — same null semantics as deviceId.
-     */
     @JsonProperty("ip")
     private final String ip;
 
@@ -51,8 +29,6 @@ public class CleanTransaction {
         this.ip = ip;
         this.accountId = accountId;
     }
-
-    // ── Getters (no setters — this DTO is immutable after construction) ──
 
     public String getId() { return id; }
     public double getAmount() { return amount; }

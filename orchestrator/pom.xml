@@ -16,20 +16,18 @@
     <artifactId>sentinel-ring</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <name>Sentinel Ring</name>
-    <description>Multi-agent fraud-ring detection system — Sentinel Ring Spring Boot orchestrator</description>
+    <description>Sentinel Ring Spring Boot Orchestrator</description>
 
     <properties>
         <java.version>17</java.version>
     </properties>
 
     <dependencies>
-        <!-- Web starter: embedded Tomcat + Jackson JSON -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Test starter: JUnit 5 + Mockito + AssertJ -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

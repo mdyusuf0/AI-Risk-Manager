@@ -5,31 +5,18 @@ import java.util.Collections;
 import java.util.Objects;
 import java.util.Set;
 
-/**
- * A cleaned account record ready to be sent to the Python ring-detection
- * endpoint: POST /graph/detect-rings.
- *
- * Key features (per API Contract v4):
- *   - Aggregated per-ACCOUNT across all transactions for that account.
- *   - Preserves ALL observed non-null attribute values (device_ids, ips, bank_refs)
- *     so no linkage evidence is lost during ingestion.
- *   - bank_refs contains SHA-256 hashes of raw bank account numbers.
- *     Raw banking data never leaves the Java side.
- */
+// dto for /graph/detect-rings
 public class CleanAccount {
 
     @JsonProperty("account_id")
     private final String accountId;
 
-    /** All non-null device fingerprints observed for this account. */
     @JsonProperty("device_ids")
     private final Set<String> deviceIds;
 
-    /** All non-null IP addresses observed for this account. */
     @JsonProperty("ips")
     private final Set<String> ips;
 
-    /** All non-null bank account SHA-256 hashes observed for this account. */
     @JsonProperty("bank_refs")
     private final Set<String> bankRefs;
 
@@ -40,8 +27,6 @@ public class CleanAccount {
         this.ips = ips != null ? Collections.unmodifiableSet(ips) : Collections.emptySet();
         this.bankRefs = bankRefs != null ? Collections.unmodifiableSet(bankRefs) : Collections.emptySet();
     }
-
-    // ── Getters (immutable sets) ─────────────────────────────────────────
 
     public String getAccountId() { return accountId; }
     public Set<String> getDeviceIds() { return deviceIds; }
