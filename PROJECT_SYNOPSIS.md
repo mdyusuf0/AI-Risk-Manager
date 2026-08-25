@@ -16,10 +16,9 @@
 | 1 | **Ingestion Agent** | **Spring Boot** | ✅ **Complete** |
 | 2 | **Baseline Scoring Agent** | **Python** | ✅ **Complete** |
 | 3 | **Graph-Builder & Ring-Detection Agent** | **Python** | ✅ **Complete** |
-| 4 | Evaluation Agent | Python | ⏳ Pending |
-| 5 | Evaluation Agent | Python | ⏳ Pending |
-| 6 | Explainability Agent | Python | ⏳ Pending |
-| 7 | Orchestrator (wiring) | Spring Boot | ⏳ Pending |
+| 4 | **Evaluation Agent** | **Python** | ✅ **Complete** |
+| 5 | Explainability Agent | Python | ⏳ Pending |
+| 6 | Orchestrator (wiring) | Spring Boot | ⏳ Pending |
 
 ---
 
@@ -37,7 +36,7 @@ graph TB
         BS["📊 Baseline Scoring<br/>POST /score/baseline<br/><i>Stage 2 — COMPLETE</i>"]
         GR["🕸️ Graph + Ring Detection<br/>POST /graph/detect-rings<br/><i>Stage 3 — COMPLETE</i>"]
         EX["💬 Explainability<br/>POST /explain<br/><i>PENDING</i>"]
-        EV["📈 Evaluation<br/>POST /evaluate<br/><i>PENDING</i>"]
+        EV["📈 Evaluation<br/>POST /evaluate<br/><i>Stage 4 — COMPLETE</i>"]
     end
 
     CSV --> IA
@@ -54,7 +53,7 @@ graph TB
     style BS fill:#4caf50,color:#fff
     style GR fill:#4caf50,color:#fff
     style EX fill:#9e9e9e,color:#fff
-    style EV fill:#9e9e9e,color:#fff
+    style EV fill:#4caf50,color:#fff
 ```
 
 **Legend:** 🟢 Green = complete | ⬜ Grey = pending
@@ -230,12 +229,50 @@ flagged rings.
 
 ---
 
+## Stage 4: Evaluation Agent — What Was Built
+
+### Purpose
+
+The Evaluation Agent implements `POST /evaluate`.
+It compares flagged account predictions against held-out ground truth labels,
+calculating precision, recall, and an estimated false-positive cost based on a
+configurable cost per false positive.
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Alignment Verification | Strict ID set comparison | Returns HTTP 400 if predictions and ground truth IDs do not match 1-to-1. |
+| Unique ID Rule | Raises error on duplicate IDs | Prevents duplicate prediction counts or inflated metric calculations. |
+| Vacuous Precision | `precision = 1.0` when no items flagged | Handles zero-flagged edge cases deterministically. |
+| Vacuous Recall | `recall = 1.0` when 0 fraud items in ground truth | Standard metric behavior for empty-fraud ground truth sets. |
+| Cost Calculation | `FP * cost_per_false_positive` | Simple, configurable dollar-cost estimation for false flags. |
+
+### Test Coverage (6 tests)
+
+| Test Category | Count | What's Tested |
+|---------------|-------|---------------|
+| Metric calculation | 2 | Standard TP/FP/TN/FN metrics and vacuous precision edge cases |
+| Alignment & Validation | 2 | Raises 400/error on mismatched IDs or duplicate IDs |
+| API integration | 2 | Endpoint 200 response shape and 400 mismatch error |
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| [`agents/eval/models.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/eval/models.py) | Pydantic models for /evaluate |
+| [`agents/eval/evaluator.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/eval/evaluator.py) | Metric computation and ID alignment logic |
+| [`agents/eval/router.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/eval/router.py) | FastAPI router for POST /evaluate |
+| [`agents/tests/test_eval.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/tests/test_eval.py) | 6 unit & integration tests for evaluation agent |
+
+---
+
 ## What's Next
 
-**Stage 4: Evaluation Agent (Python / FastAPI)**
-- Implements `POST /evaluate`
-- Computes precision, recall, and false-positive cost on held-out test sets
-- Validates prediction vs ground truth ID alignment rules
+**Stage 5: Explainability Agent (Python / FastAPI)**
+- Implements `POST /explain`
+- Generates plain-English evidence explanations for flagged rings
+- Supports optional `time_window_days` parameter
 
 ---
 
