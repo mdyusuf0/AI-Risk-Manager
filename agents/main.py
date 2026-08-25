@@ -29,6 +29,7 @@ HOW TO RUN:
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from scoring.router import router as scoring_router
+from graph.router import router as graph_router
 import logging
 
 # ── Configure logging ─────────────────────────────────────────────────────
@@ -49,11 +50,8 @@ async def lifespan(application: FastAPI):
     """Startup and shutdown events for the FastAPI app."""
     # ── Startup ───────────────────────────────────────────────────────────
     logger.info("🛡️  Sentinel Ring Python agents started on port 8000")
-    logger.info("📊 Active endpoints: POST /score/baseline")
+    logger.info("📊 Active endpoints: POST /score/baseline, POST /graph/detect-rings")
     logger.info("📖 API docs available at: http://localhost:8000/docs")
-    # FastAPI auto-generates interactive API docs (Swagger UI) at /docs.
-    # Spring Boot equivalent: springdoc-openapi + Swagger UI.
-    # But FastAPI does it out of the box — no extra dependency needed!
     yield
     # ── Shutdown (runs when server stops) ──────────────────────────────────
     logger.info("Sentinel Ring Python agents shutting down")
@@ -73,13 +71,8 @@ app = FastAPI(
 
 # ── Register routers (like Spring component scanning, but explicit) ───────
 # Each router handles a group of related endpoints.
-# As we build more agents, we'll add more include_router() calls here.
 app.include_router(scoring_router)
-
-# Future stages will add:
-# app.include_router(graph_router)     # Stage 3-4: Graph + Ring Detection
-# app.include_router(evaluate_router)  # Stage 5: Evaluation
-# app.include_router(explain_router)   # Stage 6: Explainability
+app.include_router(graph_router)
 
 
 # ── Health check endpoint ─────────────────────────────────────────────────
