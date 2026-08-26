@@ -18,7 +18,7 @@
 | 3 | **Graph-Builder & Ring-Detection Agent** | **Python** | ✅ **Complete** |
 | 4 | **Evaluation Agent** | **Python** | ✅ **Complete** |
 | 5 | **Explainability Agent** | **Python** | ✅ **Complete** |
-| 6 | Orchestrator (wiring) | Spring Boot | ⏳ Pending |
+| 6 | **Orchestrator (wiring)** | **Spring Boot** | ✅ **Complete** |
 
 ---
 
@@ -49,7 +49,7 @@ graph TB
     ORCH -->|"Final Verdict + Metrics"| OUTPUT["📋 API Response"]
 
     style IA fill:#4caf50,color:#fff
-    style ORCH fill:#9e9e9e,color:#fff
+    style ORCH fill:#4caf50,color:#fff
     style BS fill:#4caf50,color:#fff
     style GR fill:#4caf50,color:#fff
     style EX fill:#4caf50,color:#fff
@@ -300,14 +300,59 @@ reviewers. Only references time windows when timestamp data was actually availab
 | [`agents/explain/router.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/explain/router.py) | FastAPI router for POST /explain |
 | [`agents/tests/test_explain.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/tests/test_explain.py) | 10 unit & integration tests |
 
+## Stage 6: Orchestrator Wiring — What Was Built
+
+### Purpose
+
+The Orchestrator is a Spring Boot REST controller (`POST /api/analyze`) that
+wires all agents together into a single end-to-end pipeline:
+
+```
+Raw Transactions → Ingestion → [Scoring + Graph Detection in parallel]
+                 → Explain (per flagged ring) → Final Verdict
+                 → Evaluate (if ground truth supplied)
+```
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Python HTTP client | `java.net.http.HttpClient` (JDK 11+) | No extra dependency needed, built into JDK. |
+| Scoring + Graph | Called in parallel via `ExecutorService` | Independent steps, parallel execution cuts latency. |
+| Risk score aggregation | `MAX(risk_score)` per account | Per contract — worst transaction drives the account flag. |
+| Multi-ring tie-break | Highest `ring_score`, then lexicographic `ring_id` | Deterministic per contract spec. |
+| Time window | Computed from ingestion timestamp range | Only passed to `/explain` when timestamps were available. |
+| Score-only flags | Auto-generated explanation, no `/explain` call | Per contract — only ring flags trigger the explain endpoint. |
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| [`AnalyzeRequest.java`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/orchestrator/src/main/java/com/sentinel/orchestrator/dto/AnalyzeRequest.java) | Request DTO (transactions + optional ground truth) |
+| [`VerdictItem.java`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/orchestrator/src/main/java/com/sentinel/orchestrator/dto/VerdictItem.java) | Single verdict entry DTO |
+| [`MetricsResult.java`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/orchestrator/src/main/java/com/sentinel/orchestrator/dto/MetricsResult.java) | Metrics DTO (precision, recall, cost) |
+| [`OrchestratorResponse.java`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/orchestrator/src/main/java/com/sentinel/orchestrator/dto/OrchestratorResponse.java) | Final response wrapper |
+| [`PythonAgentClient.java`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/orchestrator/src/main/java/com/sentinel/orchestrator/client/PythonAgentClient.java) | HTTP client for calling Python endpoints |
+| [`OrchestratorService.java`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/orchestrator/src/main/java/com/sentinel/orchestrator/service/OrchestratorService.java) | Full pipeline logic |
+| [`OrchestratorController.java`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/orchestrator/src/main/java/com/sentinel/orchestrator/controller/OrchestratorController.java) | REST controller for POST /api/analyze |
+
 ---
 
-## What's Next
+## 🎉 Project Complete
 
-**Stage 6: Orchestrator Wiring (Spring Boot)**
-- Wire Spring Boot to call all 4 Python endpoints
-- Build the final verdict response per API contract
-- End-to-end pipeline: CSV → Ingestion → Scoring + Graph → Explain → Verdict
+All stages are implemented. To run the full system:
+
+```bash
+# terminal 1: python agents
+cd agents/
+uvicorn main:app --port 8000
+
+# terminal 2: spring boot orchestrator
+cd orchestrator/
+mvn spring-boot:run
+
+# then POST to http://localhost:8080/api/analyze
+```
 
 ---
 
