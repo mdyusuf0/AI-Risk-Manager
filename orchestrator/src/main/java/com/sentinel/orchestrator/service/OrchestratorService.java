@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
@@ -39,9 +40,17 @@ public class OrchestratorService {
         this.pythonClient = pythonClient;
     }
 
+    // visible for testing
+    void setThresholds(double riskScore, double ringScore, String currency, double costPerFp) {
+        this.riskScoreThreshold = riskScore;
+        this.ringScoreThreshold = ringScore;
+        this.currency = currency;
+        this.costPerFalsePositive = costPerFp;
+    }
+
     @SuppressWarnings("unchecked")
     public OrchestratorResponse analyze(AnalyzeRequest request) {
-        // step 1: ingest raw data
+        // step 1: ingest
         IngestionResult ingested = ingestionService.ingest(request.getTransactions());
         log.info("ingestion done: {} txs, {} accounts, {} skipped",
                 ingested.getTransactions().size(),
@@ -51,15 +60,17 @@ public class OrchestratorService {
         // step 2: call scoring + graph in parallel
         ExecutorService executor = Executors.newFixedThreadPool(2);
 
-        // build request payloads
+        // FIX 1: use HashMap so nulls are preserved (Map.of rejects null)
         Map<String, Object> scorePayload = Map.of("transactions",
-                ingested.getTransactions().stream().map(tx -> Map.of(
-                        "id", tx.getId(),
-                        "amount", tx.getAmount(),
-                        "device_id", (Object) Optional.ofNullable(tx.getDeviceId()).orElse(""),
-                        "ip", (Object) Optional.ofNullable(tx.getIp()).orElse(""),
-                        "account_id", tx.getAccountId()
-                )).toList());
+                ingested.getTransactions().stream().map(tx -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("id", tx.getId());
+                    m.put("amount", tx.getAmount());
+                    m.put("device_id", tx.getDeviceId());   // null stays null
+                    m.put("ip", tx.getIp());                 // null stays null
+                    m.put("account_id", tx.getAccountId());
+                    return m;
+                }).toList());
 
         Map<String, Object> graphPayload = Map.of("accounts",
                 ingested.getAccounts().stream().map(acc -> Map.of(
@@ -86,7 +97,6 @@ public class OrchestratorService {
         // step 3: aggregate risk scores per account (MAX)
         List<Map<String, Object>> scores = (List<Map<String, Object>>) scoreResult.get("scores");
         Map<String, Double> accountRiskScores = new HashMap<>();
-        // build tx -> account map
         Map<String, String> txToAccount = new HashMap<>();
         for (CleanTransaction tx : ingested.getTransactions()) {
             txToAccount.put(tx.getId(), tx.getAccountId());
@@ -100,10 +110,8 @@ public class OrchestratorService {
             }
         }
 
-        // step 4: parse rings
+        // step 4: parse rings + build account->best ring mapping
         List<Map<String, Object>> rings = (List<Map<String, Object>>) graphResult.get("rings");
-
-        // build account -> best ring mapping (highest ring_score, tiebreak by ring_id)
         Map<String, Map<String, Object>> accountToBestRing = new HashMap<>();
         Set<String> ringFlaggedAccounts = new HashSet<>();
 
@@ -129,14 +137,13 @@ public class OrchestratorService {
             }
         }
 
-        // step 5: compute time_window_days from ingestion timestamps
-        Integer timeWindowDays = null;
-        if (ingested.getEarliestTimestamp() != null && ingested.getLatestTimestamp() != null) {
-            long days = ChronoUnit.DAYS.between(ingested.getEarliestTimestamp(), ingested.getLatestTimestamp());
-            timeWindowDays = (int) Math.max(1, days);
+        // FIX 2: build account lookup for per-ring time window computation
+        Map<String, CleanAccount> accountLookup = new HashMap<>();
+        for (CleanAccount acc : ingested.getAccounts()) {
+            accountLookup.put(acc.getAccountId(), acc);
         }
 
-        // step 6: call /explain for each flagged ring
+        // step 5: call /explain for each flagged ring with per-ring time window
         Set<String> explainedRingIds = new HashSet<>();
         Map<String, String> ringExplanations = new HashMap<>();
 
@@ -147,12 +154,16 @@ public class OrchestratorService {
             if (explainedRingIds.contains(ringId)) continue;
             explainedRingIds.add(ringId);
 
+            // compute time window from this ring's accounts only
+            Integer ringTimeWindowDays = computeRingTimeWindow(
+                    (List<String>) ring.get("account_ids"), accountLookup);
+
             Map<String, Object> explainPayload = new HashMap<>();
             explainPayload.put("ring_id", ringId);
             explainPayload.put("account_ids", ring.get("account_ids"));
             explainPayload.put("shared_attrs", ring.get("shared_attrs"));
-            if (timeWindowDays != null) {
-                explainPayload.put("time_window_days", timeWindowDays);
+            if (ringTimeWindowDays != null) {
+                explainPayload.put("time_window_days", ringTimeWindowDays);
             }
 
             try {
@@ -164,12 +175,9 @@ public class OrchestratorService {
             }
         }
 
-        // step 7: build verdict
+        // step 6: build verdict
         List<VerdictItem> verdict = new ArrayList<>();
-        Set<String> allAccountIds = new HashSet<>();
-        for (CleanAccount acc : ingested.getAccounts()) {
-            allAccountIds.add(acc.getAccountId());
-        }
+        Set<String> allAccountIds = accountLookup.keySet();
 
         for (String accountId : allAccountIds) {
             double riskScore = accountRiskScores.getOrDefault(accountId, 0.0);
@@ -193,10 +201,10 @@ public class OrchestratorService {
             verdict.add(new VerdictItem(accountId, true, riskScore, ringId, explanation));
         }
 
-        // sort verdict by account_id
         verdict.sort(Comparator.comparing(VerdictItem::getAccountId));
 
-        // step 8: call /evaluate if ground truth provided
+        // step 7: call /evaluate if ground truth provided
+        // FIX 4: propagate error if eval fails with ground truth supplied
         MetricsResult metrics = null;
         if (request.getGroundTruth() != null && !request.getGroundTruth().isEmpty()) {
             List<Map<String, Object>> predictions = new ArrayList<>();
@@ -217,19 +225,43 @@ public class OrchestratorService {
                     )
             );
 
-            try {
-                Map<String, Object> evalResult = pythonClient.post("/evaluate", evalPayload);
-                metrics = new MetricsResult(
-                        ((Number) evalResult.get("precision")).doubleValue(),
-                        ((Number) evalResult.get("recall")).doubleValue(),
-                        ((Number) evalResult.get("false_positive_cost_estimate")).doubleValue(),
-                        currency
-                );
-            } catch (Exception e) {
-                log.warn("evaluation failed: {}", e.getMessage());
-            }
+            // don't swallow — caller supplied labels, they need to know if eval failed
+            Map<String, Object> evalResult = pythonClient.post("/evaluate", evalPayload);
+            metrics = new MetricsResult(
+                    ((Number) evalResult.get("precision")).doubleValue(),
+                    ((Number) evalResult.get("recall")).doubleValue(),
+                    ((Number) evalResult.get("false_positive_cost_estimate")).doubleValue(),
+                    currency
+            );
         }
 
         return new OrchestratorResponse(verdict, metrics);
+    }
+
+    // FIX 2: compute time window from only a ring's member accounts
+    // returns null if no timestamps available, or if span is 0 days
+    Integer computeRingTimeWindow(List<String> ringAccountIds, Map<String, CleanAccount> accountLookup) {
+        Instant earliest = null;
+        Instant latest = null;
+
+        for (String accId : ringAccountIds) {
+            CleanAccount acc = accountLookup.get(accId);
+            if (acc == null) continue;
+            if (acc.getEarliestTimestamp() != null) {
+                if (earliest == null || acc.getEarliestTimestamp().isBefore(earliest))
+                    earliest = acc.getEarliestTimestamp();
+            }
+            if (acc.getLatestTimestamp() != null) {
+                if (latest == null || acc.getLatestTimestamp().isAfter(latest))
+                    latest = acc.getLatestTimestamp();
+            }
+        }
+
+        if (earliest == null || latest == null) return null;
+
+        long days = ChronoUnit.DAYS.between(earliest, latest);
+        if (days <= 0) return null;  // same day or no span → don't claim time evidence
+
+        return (int) days;
     }
 }

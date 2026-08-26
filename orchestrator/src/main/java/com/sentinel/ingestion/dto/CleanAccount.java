@@ -1,6 +1,8 @@
 package com.sentinel.ingestion.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.Objects;
 import java.util.Set;
@@ -20,18 +22,29 @@ public class CleanAccount {
     @JsonProperty("bank_refs")
     private final Set<String> bankRefs;
 
+    // not serialized to python — used by orchestrator for per-ring time windows
+    @JsonIgnore
+    private final Instant earliestTimestamp;
+
+    @JsonIgnore
+    private final Instant latestTimestamp;
+
     public CleanAccount(String accountId, Set<String> deviceIds, Set<String> ips,
-                        Set<String> bankRefs) {
+                        Set<String> bankRefs, Instant earliestTimestamp, Instant latestTimestamp) {
         this.accountId = accountId;
         this.deviceIds = deviceIds != null ? Collections.unmodifiableSet(deviceIds) : Collections.emptySet();
         this.ips = ips != null ? Collections.unmodifiableSet(ips) : Collections.emptySet();
         this.bankRefs = bankRefs != null ? Collections.unmodifiableSet(bankRefs) : Collections.emptySet();
+        this.earliestTimestamp = earliestTimestamp;
+        this.latestTimestamp = latestTimestamp;
     }
 
     public String getAccountId() { return accountId; }
     public Set<String> getDeviceIds() { return deviceIds; }
     public Set<String> getIps() { return ips; }
     public Set<String> getBankRefs() { return bankRefs; }
+    public Instant getEarliestTimestamp() { return earliestTimestamp; }
+    public Instant getLatestTimestamp() { return latestTimestamp; }
 
     @Override
     public boolean equals(Object o) {
@@ -54,6 +67,7 @@ public class CleanAccount {
         return "CleanAccount{account_id='" + accountId +
                "', device_ids=" + deviceIds +
                ", ips=" + ips +
-               ", bank_refs=" + bankRefs.size() + " hashes}";
+               ", bank_refs=" + bankRefs.size() + " hashes" +
+               ", timeRange=" + earliestTimestamp + " -> " + latestTimestamp + "}";
     }
 }

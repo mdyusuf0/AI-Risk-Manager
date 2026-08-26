@@ -53,6 +53,7 @@ public class IngestionService {
 
             Instant ts = parseTimestamp(raw.getTransactionTime());
             if (ts != null) {
+                accountBuilders.get(raw.getAccountId()).mergeTimestamp(ts);
                 if (earliest == null || ts.isBefore(earliest)) {
                     earliest = ts;
                 }
@@ -120,6 +121,8 @@ public class IngestionService {
         private final Set<String> deviceIds = new LinkedHashSet<>();
         private final Set<String> ips = new LinkedHashSet<>();
         private final Set<String> bankRefs = new LinkedHashSet<>();
+        private Instant earliest = null;
+        private Instant latest = null;
 
         AccountBuilder(String accountId) {
             this.accountId = accountId;
@@ -131,8 +134,14 @@ public class IngestionService {
             if (newBankRef != null) this.bankRefs.add(newBankRef);
         }
 
+        void mergeTimestamp(Instant ts) {
+            if (ts == null) return;
+            if (earliest == null || ts.isBefore(earliest)) earliest = ts;
+            if (latest == null || ts.isAfter(latest)) latest = ts;
+        }
+
         CleanAccount build() {
-            return new CleanAccount(accountId, deviceIds, ips, bankRefs);
+            return new CleanAccount(accountId, deviceIds, ips, bankRefs, earliest, latest);
         }
     }
 }

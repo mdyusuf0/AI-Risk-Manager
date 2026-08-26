@@ -15,7 +15,7 @@
 | 0 | API Contract | — | ✅ Locked (v4) |
 | 1 | **Ingestion Agent** | **Spring Boot** | ✅ **Complete** |
 | 2 | **Baseline Scoring Agent** | **Python** | ✅ **Complete** |
-| 3 | **Graph-Builder & Ring-Detection Agent** | **Python** | ✅ **Complete** |
+| 3 | **Graph-Builder & Ring-Detection Agent** | **Python** | ✅ **Complete (Louvain)** |
 | 4 | **Evaluation Agent** | **Python** | ✅ **Complete** |
 | 5 | **Explainability Agent** | **Python** | ✅ **Complete** |
 | 6 | **Orchestrator (wiring)** | **Spring Boot** | ✅ **Complete** |
@@ -29,7 +29,7 @@ graph TB
     subgraph "Spring Boot · localhost:8080"
         CSV["📄 Raw CSV / Data Source"]
         IA["🧹 Ingestion Agent<br/><i>Stage 1 — COMPLETE</i>"]
-        ORCH["🎯 Orchestrator<br/><i>Stage 7 — PENDING</i>"]
+        ORCH["🎯 Orchestrator<br/><i>Stage 6 — COMPLETE</i>"]
     end
 
     subgraph "Python FastAPI · localhost:8000"
@@ -76,11 +76,11 @@ privacy-safe data.
 | Bank reference handling | SHA-256 hash via `BankRefHasher` | API contract requires non-reversible tokens. Raw bank data never leaves the Java side. |
 | Null normalization | Blank/empty → explicit `null` | Contract rule: `null` is never treated as shared evidence in the graph. Two accounts with `null` device_id don't get connected. |
 | Timestamp parsing | 3 strategies: ISO-8601, simple date, epoch seconds | Real data uses varied formats. IEEE-CIS uses epoch-style; other datasets use ISO dates. |
-| Account deduplication | First non-null attribute wins | Raw data has one row per transaction but the graph needs one row per account. Merge by keeping first non-null value for each attribute. |
+| Account attribute aggregation | Preserve all observed non-null sets per account (`device_ids`, `ips`, `bank_refs`) | Preserves full graph linkage evidence across multiple transactions for the same account. |
 | Malformed row handling | Drop + log warning, don't crash | Graceful degradation: bad rows are counted in `skippedRows` for auditing. |
 | Immutable DTOs | `final` fields, no setters on clean DTOs | Clean data should never be mutated after construction. |
 
-### Output Shapes (per API Contract v3)
+### Output Shapes (per API Contract v4)
 
 **CleanTransaction** → sent to `/score/baseline`:
 ```json
@@ -89,7 +89,7 @@ privacy-safe data.
 
 **CleanAccount** → sent to `/graph/detect-rings`:
 ```json
-{ "account_id": "a1", "device_id": "d1", "ip": "1.2.3.4", "bank_ref": "a3f2b7c9..." }
+{ "account_id": "a1", "device_ids": ["d1"], "ips": ["1.2.3.4"], "bank_refs": ["a3f2b7c9..."] }
 ```
 
 ### Test Coverage
@@ -100,7 +100,7 @@ privacy-safe data.
 | Bank-ref hashing | 2 | SHA-256 output matches, same bank → same hash |
 | Malformed rows | 4 | Missing id/amount/accountId skipped; mix of valid+invalid; empty input |
 | Timestamp parsing | 5 | ISO-8601, simple date, epoch seconds, invalid (ignored), range tracking |
-| Account deduplication | 2 | Same accountId → one output; first non-null attribute wins |
+| Account deduplication & aggregation | 2 | Same accountId → aggregate sets of all non-null devices, IPs, and bank refs |
 | Defense-only | 1 | IngestionResult has no scoring/flagging fields |
 
 ### Files
@@ -187,25 +187,30 @@ clamped to [0.0, 1.0]
 
 The Graph-Builder & Ring-Detection Agent implements `POST /graph/detect-rings`.
 It receives account attribute sets (`device_ids`, `ips`, `bank_refs`), constructs
-an undirected NetworkX graph connecting accounts that share non-null attributes,
-identifies connected components (clusters), and computes confidence scores for
-flagged rings.
+an weighted NetworkX graph connecting accounts that share non-null attributes,
+applies Louvain Community Detection to uncover tightly connected fraud rings,
+and computes confidence scores for flagged rings.
 
-### Key Data-Model Correction (API Contract v4)
+### Graph & Clustering Safeguards (Louvain Community Detection)
 
-| Original Approach | Problem | Revised Approach (v4) |
-|-------------------|---------|-----------------------|
-| Deduplicate account attributes by keeping first non-null value (`device_id`, `ip`, `bank_ref`). | Discarded subsequent legitimate devices/IPs/banks used by the same account, missing graph links. | Preserve **all** observed non-null attribute values as sets per account (`device_ids`, `ips`, `bank_refs`). |
+| Feature | Implementation | Rationale |
+|---------|----------------|-----------|
+| Algorithm | `networkx.algorithms.community.louvain_communities` with `seed=42` | Ensures deterministic, reproducible community clustering across runs. |
+| Edge Weighting | `device_id` = 3, `bank_ref` = 2, `ip` = 1 | Stronger linkage signals drive community formation over weak signals. |
+| Minimum Ring Size | `min_ring_size = 3` | Weak 2-account pairs are discarded as rings. |
+| Public IP Safeguard | Rings supported solely by shared IP are capped at `ring_score = 0.55` | Shared IP alone cannot trigger the `0.60` ring flagging threshold. |
 
-### Key Design Decisions
+### Ring Scoring Formula
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Graph Library | `networkx` (`nx.Graph`) | Standard Python library for graph construction and connected component detection. |
-| Edge Rules | Created only between accounts sharing non-null/non-empty attribute values. | Prevents false connections from unobserved attributes. |
-| Edge Data | `shared_attrs` set stored on each edge (`device_id`, `ip`, `bank_ref`). | Preserves attribute-level evidence trail for downstream explanations. |
-| Ring Ordering | Primary: descending `ring_score`. Secondary tie-breaker: `account_ids` joined string. | Guarantees deterministic output across identical input payloads. |
-| Ring ID Format | `ring-1`, `ring-2`, ... (1-based rank by descending score). | Consistent run-scoped ring IDs. |
+```
+base_score = 0.40
++ 0.25 if bank_ref is shared
++ 0.20 if device_id is shared
++ 0.05 if ip is shared
++ 0.05 * (cluster_size - 3) for size > 3
+capped at 0.55 if shared_attrs == ["ip"]
+clamped to [0.0, 1.0]
+```
 
 ### Test Coverage (8 tests)
 
@@ -300,6 +305,8 @@ reviewers. Only references time windows when timestamp data was actually availab
 | [`agents/explain/router.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/explain/router.py) | FastAPI router for POST /explain |
 | [`agents/tests/test_explain.py`](file:///c:/Users/yusuf/OneDrive/Desktop/RazorPay%20AI%20Risk%20Mg/agents/tests/test_explain.py) | 10 unit & integration tests |
 
+---
+
 ## Stage 6: Orchestrator Wiring — What Was Built
 
 ### Purpose
@@ -317,12 +324,11 @@ Raw Transactions → Ingestion → [Scoring + Graph Detection in parallel]
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Python HTTP client | `java.net.http.HttpClient` (JDK 11+) | No extra dependency needed, built into JDK. |
+| Python HTTP client | `java.net.http.HttpClient` (JDK 11+) | Built into JDK. |
 | Scoring + Graph | Called in parallel via `ExecutorService` | Independent steps, parallel execution cuts latency. |
-| Risk score aggregation | `MAX(risk_score)` per account | Per contract — worst transaction drives the account flag. |
-| Multi-ring tie-break | Highest `ring_score`, then lexicographic `ring_id` | Deterministic per contract spec. |
-| Time window | Computed from ingestion timestamp range | Only passed to `/explain` when timestamps were available. |
-| Score-only flags | Auto-generated explanation, no `/explain` call | Per contract — only ring flags trigger the explain endpoint. |
+| Null preservation | Pass explicit JSON `null` for missing device/IP | Prevents silent lowering of risk scores on missing data. |
+| Per-ring time window | Computed only across member accounts of that ring | Accurate temporal context per ring; omitted if span is 0 or missing. |
+| Error propagation | Propagates `/evaluate` failures when ground truth is supplied | Prevents masking evaluation errors as `metrics: null`. |
 
 ### Files
 
@@ -338,9 +344,12 @@ Raw Transactions → Ingestion → [Scoring + Graph Detection in parallel]
 
 ---
 
-## 🎉 Project Complete
+## ⏳ System Implementation Complete — Evaluation Pending
 
-All stages are implemented. To run the full system:
+All 6 pipeline stages are implemented and verified via unit/integration tests (38 Java + 46 Python).
+**Evaluation against held-out real data is currently pending.**
+
+To run the pipeline locally:
 
 ```bash
 # terminal 1: python agents
@@ -351,7 +360,7 @@ uvicorn main:app --port 8000
 cd orchestrator/
 mvn spring-boot:run
 
-# then POST to http://localhost:8080/api/analyze
+# test payload: POST http://localhost:8080/api/analyze
 ```
 
 ---
@@ -359,5 +368,5 @@ mvn spring-boot:run
 ## Metrics
 
 > Precision, recall, and false-positive cost will be reported here once the
-> Evaluation Agent is running against real train/test data. No
+> Evaluation Agent runs against real held-out train/test data. No
 > placeholder or estimated numbers.

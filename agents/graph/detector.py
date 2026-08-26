@@ -1,5 +1,6 @@
 from typing import List, Dict, Set, Tuple
 import networkx as nx
+from networkx.algorithms.community import louvain_communities
 from graph.models import AccountGraphInput, Ring
 
 def detect_rings(accounts: List[AccountGraphInput]) -> List[Ring]:
@@ -24,6 +25,8 @@ def detect_rings(accounts: List[AccountGraphInput]) -> List[Ring]:
     for acc in accounts:
         G.add_node(acc.account_id)
 
+    attr_weights = {"device_id": 3, "bank_ref": 2, "ip": 1}
+
     for (attr_type, _), sharing_accounts in attr_to_accounts.items():
         if len(sharing_accounts) > 1:
             acc_list = sorted(list(sharing_accounts))
@@ -32,10 +35,11 @@ def detect_rings(accounts: List[AccountGraphInput]) -> List[Ring]:
                     u, v = acc_list[i], acc_list[j]
                     if G.has_edge(u, v):
                         G[u][v]["shared_attrs"].add(attr_type)
+                        G[u][v]["weight"] = sum(attr_weights[attr] for attr in G[u][v]["shared_attrs"])
                     else:
-                        G.add_edge(u, v, shared_attrs={attr_type})
+                        G.add_edge(u, v, shared_attrs={attr_type}, weight=attr_weights[attr_type])
 
-    components = [comp for comp in nx.connected_components(G) if len(comp) >= 2]
+    components = [comp for comp in louvain_communities(G, weight="weight", seed=42) if len(comp) >= 3]
 
     raw_rings = []
     for comp in components:
@@ -71,15 +75,26 @@ def detect_rings(accounts: List[AccountGraphInput]) -> List[Ring]:
     return rings
 
 def _calculate_ring_score(cluster_size: int, shared_attrs: Set[str]) -> float:
-    score = 0.50
+    # RING SCORE FORMULA:
+    # base = 0.40
+    # + 0.25 if bank_ref shared
+    # + 0.20 if device_id shared
+    # + 0.05 if ip shared
+    # + 0.05 * (cluster_size - 3) for size > 3
+    # IP-only cap: if only "ip" in shared_attrs -> cap score at 0.55
+    # Clamped to [0.0, 1.0]
+    score = 0.40
     if "bank_ref" in shared_attrs:
         score += 0.25
     if "device_id" in shared_attrs:
         score += 0.20
     if "ip" in shared_attrs:
-        score += 0.10
+        score += 0.05
 
-    if cluster_size > 2:
-        score += 0.05 * (cluster_size - 2)
+    if cluster_size > 3:
+        score += 0.05 * (cluster_size - 3)
+
+    if len(shared_attrs) == 1 and "ip" in shared_attrs:
+        score = min(score, 0.55)
 
     return max(0.0, min(1.0, round(score, 4)))
