@@ -10,6 +10,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 
@@ -24,7 +25,9 @@ public class PythonAgentClient {
     public PythonAgentClient(@Value("${sentinel.python-agent.base-url}") String baseUrl) {
         this.baseUrl = baseUrl;
         this.objectMapper = new ObjectMapper();
+        // force HTTP/1.1 to prevent uvicorn HTTP/2 upgrade negotiation issues
         this.httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
     }
@@ -35,13 +38,14 @@ public class PythonAgentClient {
             String json = objectMapper.writeValueAsString(requestBody);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + path))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .header("Content-Type", "application/json; charset=utf-8")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
                     .timeout(Duration.ofSeconds(30))
                     .build();
 
-            log.info("calling python agent: POST {}", path);
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            log.info("calling python agent: POST {} with body: {}", path, json);
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
             if (response.statusCode() >= 400) {
                 log.error("python agent returned {}: {}", response.statusCode(), response.body());
