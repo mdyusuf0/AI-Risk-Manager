@@ -8,8 +8,8 @@ services:
     ports:
       - "27017:27017"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: sentinel_admin
-      MONGO_INITDB_ROOT_PASSWORD: sentinel_secret_2026
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-sentinel_user}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-dev_db_password}
       MONGO_INITDB_DATABASE: sentinel_ring
     volumes:
       - sentinel_mongo_data:/data/db
