@@ -6,6 +6,7 @@ import com.sentinel.orchestrator.service.OrchestratorService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/api")
 public class OrchestratorController {

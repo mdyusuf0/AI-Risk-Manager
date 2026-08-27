@@ -1,0 +1,46 @@
+{
+  "name": "sentinel-ring-ui",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npx tsc --noEmit && npx vite build",
+    "lint": "npx tsc --noEmit",
+    "preview": "vite preview",
+    "test": "npx vitest run",
+    "test:ui": "npx vitest",
+    "test:e2e": "npx playwright test"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.62.11",
+    "clsx": "^2.1.1",
+    "cytoscape": "^3.30.4",
+    "framer-motion": "^11.15.0",
+    "lucide-react": "^0.469.0",
+    "papaparse": "^5.5.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.15.0",
+    "tailwind-merge": "^2.6.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/cytoscape": "^3.21.9",
+    "@types/node": "^22.10.2",
+    "@types/papaparse": "^5.3.15",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "jsdom": "^25.0.1",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}
