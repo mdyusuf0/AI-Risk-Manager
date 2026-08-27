@@ -57,6 +57,11 @@ public class OrchestratorService {
                 ingested.getAccounts().size(),
                 ingested.getSkippedRows());
 
+        if (ingested.getTransactions().isEmpty()) {
+            log.warn("no valid transactions ingested; returning empty verdict");
+            return new OrchestratorResponse(Collections.emptyList(), null);
+        }
+
         // step 2: call scoring + graph in parallel
         ExecutorService executor = Executors.newFixedThreadPool(2);
 

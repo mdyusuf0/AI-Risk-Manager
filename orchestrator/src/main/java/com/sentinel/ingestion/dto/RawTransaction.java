@@ -1,14 +1,34 @@
 package com.sentinel.ingestion.dto;
 
-// raw uncleaned tx model from csv/input
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+// raw uncleaned tx model from csv/input — accepts both camelCase and snake_case
 public class RawTransaction {
 
+    @JsonProperty("id")
     private String id;
+
+    @JsonProperty("amount")
     private Double amount;
+
+    @JsonProperty("deviceId")
+    @JsonAlias({"device_id", "deviceId"})
     private String deviceId;
+
+    @JsonProperty("ip")
     private String ip;
+
+    @JsonProperty("accountId")
+    @JsonAlias({"account_id", "accountId"})
     private String accountId;
+
+    @JsonProperty("bankAccount")
+    @JsonAlias({"bank_account", "bankAccount", "bank_ref", "bankRef"})
     private String bankAccount;
+
+    @JsonProperty("transactionTime")
+    @JsonAlias({"transaction_time", "transactionTime", "timestamp"})
     private String transactionTime;
 
     public RawTransaction() {
