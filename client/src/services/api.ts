@@ -1,6 +1,6 @@
 import { Transaction, GroundTruthItem, OrchestratorResponse, AnalysisRun } from '../types/sentinel';
 
-const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8080';
+const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8081';
 const TIMEOUT_MS = Number((import.meta as any).env?.VITE_REQUEST_TIMEOUT_MS) || 60000;
 
 export class SentinelAPI {
