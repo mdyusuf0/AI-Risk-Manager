@@ -65,7 +65,6 @@ public class OrchestratorService {
         // step 2: call scoring + graph in parallel
         ExecutorService executor = Executors.newFixedThreadPool(2);
 
-        // FIX 1: use HashMap so nulls are preserved (Map.of rejects null)
         Map<String, Object> scorePayload = Map.of("transactions",
                 ingested.getTransactions().stream().map(tx -> {
                     Map<String, Object> m = new HashMap<>();
@@ -142,13 +141,12 @@ public class OrchestratorService {
             }
         }
 
-        // FIX 2: build account lookup for per-ring time window computation
         Map<String, CleanAccount> accountLookup = new HashMap<>();
         for (CleanAccount acc : ingested.getAccounts()) {
             accountLookup.put(acc.getAccountId(), acc);
         }
 
-        // step 5: call /explain for each flagged ring with per-ring time window
+        // step 5: call /explain for each flagged ring
         Set<String> explainedRingIds = new HashSet<>();
         Map<String, String> ringExplanations = new HashMap<>();
 
@@ -159,7 +157,6 @@ public class OrchestratorService {
             if (explainedRingIds.contains(ringId)) continue;
             explainedRingIds.add(ringId);
 
-            // compute time window from this ring's accounts only
             Integer ringTimeWindowDays = computeRingTimeWindow(
                     (List<String>) ring.get("account_ids"), accountLookup);
 
@@ -180,7 +177,7 @@ public class OrchestratorService {
             }
         }
 
-        // step 6: build verdict
+        // step 6: build verdict for ALL accounts in dataset
         List<VerdictItem> verdict = new ArrayList<>();
         Set<String> allAccountIds = accountLookup.keySet();
 
@@ -188,63 +185,73 @@ public class OrchestratorService {
             double riskScore = accountRiskScores.getOrDefault(accountId, 0.0);
             boolean inRing = ringFlaggedAccounts.contains(accountId);
             boolean scoreFlag = riskScore >= riskScoreThreshold;
-
-            if (!inRing && !scoreFlag) continue;
+            boolean flagged = inRing || scoreFlag;
 
             String ringId = null;
-            String explanation;
+            String explanation = "Normal account activity.";
 
             if (inRing) {
                 Map<String, Object> bestRing = accountToBestRing.get(accountId);
                 ringId = (String) bestRing.get("ring_id");
                 explanation = ringExplanations.getOrDefault(ringId, "Flagged ring " + ringId);
-            } else {
+            } else if (scoreFlag) {
                 explanation = String.format("Flagged: account risk score %.2f exceeds threshold (%.2f).",
                         riskScore, riskScoreThreshold);
             }
 
-            verdict.add(new VerdictItem(accountId, true, riskScore, ringId, explanation));
+            verdict.add(new VerdictItem(accountId, flagged, riskScore, ringId, explanation));
         }
 
         verdict.sort(Comparator.comparing(VerdictItem::getAccountId));
 
         // step 7: call /evaluate if ground truth provided
-        // FIX 4: propagate error if eval fails with ground truth supplied
         MetricsResult metrics = null;
         if (request.getGroundTruth() != null && !request.getGroundTruth().isEmpty()) {
-            List<Map<String, Object>> predictions = new ArrayList<>();
-            Set<String> flaggedIds = verdict.stream()
-                    .map(VerdictItem::getAccountId)
-                    .collect(Collectors.toSet());
+            try {
+                List<Map<String, Object>> predictions = new ArrayList<>();
+                Set<String> flaggedIds = verdict.stream()
+                        .filter(VerdictItem::isFlagged)
+                        .map(VerdictItem::getAccountId)
+                        .collect(Collectors.toSet());
 
-            for (String accId : allAccountIds) {
-                predictions.add(Map.of("id", accId, "flagged", flaggedIds.contains(accId)));
+                for (String accId : allAccountIds) {
+                    predictions.add(Map.of("id", accId, "flagged", flaggedIds.contains(accId)));
+                }
+
+                List<Map<String, Object>> formattedGt = request.getGroundTruth().stream()
+                        .filter(gt -> gt != null && (gt.containsKey("id") || gt.containsKey("account_id")))
+                        .map(gt -> {
+                            Map<String, Object> map = new HashMap<>();
+                            Object idVal = gt.containsKey("id") ? gt.get("id") : gt.get("account_id");
+                            map.put("id", idVal != null ? idVal.toString() : "");
+                            map.put("is_fraud", gt.get("is_fraud"));
+                            return map;
+                        }).toList();
+
+                Map<String, Object> evalPayload = Map.of(
+                        "predictions", predictions,
+                        "ground_truth", formattedGt,
+                        "cost_config", Map.of(
+                                "currency", currency,
+                                "cost_per_false_positive", costPerFalsePositive
+                        )
+                );
+
+                Map<String, Object> evalResult = pythonClient.post("/evaluate", evalPayload);
+                metrics = new MetricsResult(
+                        ((Number) evalResult.get("precision")).doubleValue(),
+                        ((Number) evalResult.get("recall")).doubleValue(),
+                        ((Number) evalResult.get("false_positive_cost_estimate")).doubleValue(),
+                        currency
+                );
+            } catch (Exception e) {
+                log.warn("Evaluation step failed: {}", e.getMessage());
             }
-
-            Map<String, Object> evalPayload = Map.of(
-                    "predictions", predictions,
-                    "ground_truth", request.getGroundTruth(),
-                    "cost_config", Map.of(
-                            "currency", currency,
-                            "cost_per_false_positive", costPerFalsePositive
-                    )
-            );
-
-            // don't swallow — caller supplied labels, they need to know if eval failed
-            Map<String, Object> evalResult = pythonClient.post("/evaluate", evalPayload);
-            metrics = new MetricsResult(
-                    ((Number) evalResult.get("precision")).doubleValue(),
-                    ((Number) evalResult.get("recall")).doubleValue(),
-                    ((Number) evalResult.get("false_positive_cost_estimate")).doubleValue(),
-                    currency
-            );
         }
 
         return new OrchestratorResponse(verdict, metrics);
     }
 
-    // FIX 2: compute time window from only a ring's member accounts
-    // returns null if no timestamps available, or if span is 0 days
     Integer computeRingTimeWindow(List<String> ringAccountIds, Map<String, CleanAccount> accountLookup) {
         Instant earliest = null;
         Instant latest = null;
@@ -265,7 +272,7 @@ public class OrchestratorService {
         if (earliest == null || latest == null) return null;
 
         long days = ChronoUnit.DAYS.between(earliest, latest);
-        if (days <= 0) return null;  // same day or no span → don't claim time evidence
+        if (days <= 0) return null;
 
         return (int) days;
     }

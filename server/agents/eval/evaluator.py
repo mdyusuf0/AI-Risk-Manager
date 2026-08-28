@@ -5,7 +5,6 @@ def compute_metrics(request: EvaluateRequest) -> EvaluateResponse:
     preds = request.predictions
     gt = request.ground_truth
 
-    # check duplicates
     pred_ids = [p.id for p in preds]
     gt_ids = [g.id for g in gt]
 

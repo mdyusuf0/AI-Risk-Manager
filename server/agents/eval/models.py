@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices
 from typing import List, Optional
 
 class PredictionItem(BaseModel):
@@ -6,7 +6,7 @@ class PredictionItem(BaseModel):
     flagged: bool
 
 class GroundTruthItem(BaseModel):
-    id: str
+    id: str = Field(validation_alias=AliasChoices('id', 'account_id'))
     is_fraud: bool
 
 class CostConfig(BaseModel):
